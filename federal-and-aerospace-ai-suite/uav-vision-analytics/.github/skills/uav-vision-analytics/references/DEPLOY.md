@@ -13,7 +13,8 @@
 | `broker` | `eclipse-mosquitto:2.0.22` | `1883` | MQTT broker for detection metadata |
 | `px4` | `px4io/px4-sitl:latest` | — | PX4 SITL flight controller simulator (requires `10040_sihsim_quadx.post` volume mount) |
 | `mavlink-router` | custom build | — | Routes MAVLink :14550 → :14541 |
-| `metrics-manager` | `intel/metrics-manager:2026.1.0-*` | — | CPU/GPU/NPU/power metrics collection |
+| `metrics-manager` | `intel/metrics-manager:2026.1.0-*` | `9090` | CPU/GPU/NPU/power metrics collection — **always generated, independent of `{{INCLUDE_UI}}`** |
+| `uav-mission-ui` | built from `./ui` (optional, `{{INCLUDE_UI}}`) | `8090` | Web Mission Console — pipeline control, live preview, system metrics (see `references/UI.md`). **This service block is only ever written into the freshly generated `{{STACK_DIR}}`'s compose file — never edit this app's own real `docker-compose-*.yml` in-place to add it.** |
 
 ### px4 Service (pymavlink mode)
 
@@ -52,8 +53,122 @@ Docker Compose fragment:
 | Service | Image | Ports | Role |
 |---------|-------|-------|------|
 | `dlstreamer-pipeline-server` | `${DLSTREAMER_PIPELINE_SERVER_IMAGE}` | `8081`, `8555` | AI inference + RTSP output |
+| `uav-mission-ui` | built from `./ui` (optional, `{{INCLUDE_UI}}`) | `8090` | Web Mission Console (`DEPLOY_MODE=sdk`, see `references/UI.md`). The UI app itself is identical code to pymavlink mode — only the compose service's env vars/networks differ. |
 
-**Prerequisite:** `uav-mission-compute-sdk` must already be running.
+**This app deploys ONLY these two services in uavsdk mode — never a
+`broker`/`mosquitto`, `metrics-manager`, `px4`, `companion-bridge`,
+`camera-bridge`, `mediamtx`, or `mavlink-router` service.** All of that
+infrastructure is owned by, and started separately by, the
+**`uav-mission-compute-sdk`** repo (real container names, confirmed via
+`docker ps`: `px4-gazebo`, `companion-bridge`, `camera-bridge`,
+`mqtt-broker`, `mediamtx`, plus `metrics-manager`/`influxdb`/`grafana` if
+the `observability` profile was enabled). This app's uavsdk-mode services
+attach to that already-running stack as clients; they never stand up a
+duplicate/competing copy of any SDK-owned service.
+
+**Prerequisites:**
+1. **Before starting `uav-mission-compute-sdk`**, set
+   `HOST_IP=0.0.0.0` in that repo's `.env` (its `docker-compose.yml` binds
+   MQTT/RTSP/REST ports as `${HOST_IP:-127.0.0.1}:<port>:<port>` — left at
+   the `127.0.0.1` default, they are **not** reachable from sibling
+   containers via `host.docker.internal`, only from the Docker host itself).
+   The SDK's own get-started guide already documents this step
+   (`sed -i 's|^HOST_IP=.*|HOST_IP=0.0.0.0|' .env`) — apply it as part of
+   this skill's generation flow, do not skip it or assume it was already
+   done.
+2. Then start it, e.g. `make up-sim-camera` (includes the `observability`
+   profile, i.e. `metrics-manager`, by default; `-lean` variants omit it, in
+   which case the UI's System Utilization panel must degrade gracefully,
+   see `references/UI.md`).
+3. Confirm the SDK's Compose network name (needed for step 4 below,
+   `metrics-manager` access only): `docker network ls | grep
+   uav-mission-compute-sdk` — the default is `<dirname>_default` where
+   `<dirname>` is that repo's checkout directory name (Compose's default
+   project-name derivation), **not necessarily**
+   `uav-mission-compute-sdk_default` — confirm, don't assume.
+
+### uavsdk network attachment (`docker-compose-uavsdk.yml`)
+
+**Two different, deliberately different mechanisms — do not conflate them
+into a single "join the SDK's network for everything" approach (that was
+tried and reverted; it duplicates the SDK's own documented port-publishing
+design and is unnecessary/fragile for anything except `metrics-manager`):**
+
+1. **`dlstreamer-pipeline-server`** stays on this stack's own `app_network`
+   and reaches the SDK's MQTT broker and RTSP camera source via
+   `host.docker.internal` — this works precisely because prerequisite #1
+   above (`HOST_IP=0.0.0.0`) makes those host-published ports reachable
+   from any container, not just the Docker host:
+   ```yaml
+   environment:
+     - MQTT_HOST=host.docker.internal   # -> mqtt-broker, host-published :1884
+     - MQTT_PORT=1884
+   # config.json's RTSP source similarly uses host.docker.internal:8554 (mediamtx)
+   extra_hosts:
+     - "host.docker.internal:host-gateway"
+   ```
+2. **`uav-mission-ui`** needs both mechanisms, for different upstream
+   services:
+   - `companion-bridge`'s REST API (arm/disarm, port `8080`) is *also*
+     host-published/`HOST_IP`-controlled → reach it via
+     `http://host.docker.internal:8080`, same pattern as above. (Do not
+     guess a container hostname for it, e.g. `px4-gazebo` — it is a
+     separate container, `companion-bridge`, and is not on this stack's
+     `app_network` regardless.)
+   - `metrics-manager`'s REST API (port `9090`) is documented by the SDK
+     itself (`uav-mission-compute-sdk/docs/user-guide/ports.md`) as
+     **"container-internal only"**, with no host-published port under any
+     `HOST_IP` setting. The *only* way to reach it is for `uav-mission-ui`
+     to also join the SDK's Docker network as a **second** network and
+     address it by container name. This is the one legitimate case for
+     network-joining in uavsdk mode — see the full compose fragment in
+     `references/UI.md`.
+
+---
+
+## SDK Simulation Gotchas (uavsdk mode)
+
+- **The UI container needs `no_proxy`/`NO_PROXY` runtime env vars covering
+  every internal hostname it talks to** (`dlstreamer-pipeline-server`,
+  `metrics-manager`, `host.docker.internal`), not just build-time `ARG`s in
+  the Dockerfile. On a host with a corporate `http_proxy`/`https_proxy`
+  set, Python's `requests` library honors env-var proxies for *every*
+  outbound call — including calls to sibling containers on the same Docker
+  network — and CIDR/domain-suffix `no_proxy` patterns (e.g. `10.*`,
+  `.internal`) do **not** match bare Docker Compose service names; each
+  hostname must be listed literally. Without this, every
+  `/api/pipelines*`/`/api/mission/*`/`/api/metrics` call from the UI fails
+  with `504 Gateway Timeout` (confirmed by reproducing this exact failure
+  during validation) — it looks like a networking/DNS bug but is actually
+  the corporate proxy intercepting an intra-Docker-network call.
+- **PX4 SITL in this simulation auto-disarms after ~10s of no active
+  RC/GCS/offboard input.** `camera-bridge` only pushes frames to MediaMTX
+  RTSP **while armed** (by design, to avoid idle RTSP connections) — so
+  RTSP sources go dark ~10s after every `POST /action/arm`, independent of
+  anything this app does. For a live demo or automated verification, arm
+  periodically (e.g. every 5-8s) via `POST
+  http://host.docker.internal:8080/action/arm` for as long as you need the
+  camera feed alive — a real mission script (e.g.
+  `uav-mission-compute-sdk/sample-apps/mission-simulation`) would send
+  continuous setpoints/heartbeats and never hit this timeout. Also note PX4
+  SITL can reject `arm()` with `COMMAND_DENIED` if its flight-mode/preflight
+  state isn't ready (e.g. currently in `LAND` mode, EKF/GPS not settled) —
+  this is normal simulator behavior, retry after a few seconds, it is not a
+  bug in this app or the SDK.
+- **`dlstreamer-pipeline-server` (the vendored `intel/dlstreamer-pipeline-server`
+  image) can crash (`Too many open files` / segfault)** if its `rtspsrc`
+  reconnection logic retries rapidly against a source that is repeatedly
+  flapping between available/404 (e.g. because the UAV is being armed and
+  disarmed in quick succession rather than held armed for the session).
+  This is a bug inside the vendored image's reconnection/fd-cleanup logic,
+  not something to work around in `app.py`/pipeline config. Mitigations:
+  (1) hold the UAV armed for the duration of the pipeline session instead
+  of flapping arm state, (2) only call `/api/pipelines/start` while
+  confirmed armed (`GET http://host.docker.internal:8080/health` →
+  `"armed": true`), (3) set generous `ulimits: nofile: {soft: 65536, hard:
+  65536}` on the service as headroom, and (4) the compose file's
+  `restart_policy: on-failure` already recovers the container
+  automatically if it does crash.
 
 ---
 

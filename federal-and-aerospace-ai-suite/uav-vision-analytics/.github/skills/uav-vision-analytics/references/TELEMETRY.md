@@ -97,8 +97,16 @@ volumes:
 ## UAVSDK Telemetry Overlay
 
 The UAVSDK overlay reads telemetry from MQTT rather than MAVLink directly.
-It subscribes to `uav/{id}/telemetry` topics published by the `uav-mission-compute-sdk`
-companion bridge.
+It subscribes to `uav/{id}/telemetry` topics published by the
+`uav-mission-compute-sdk` companion bridge, connecting to that stack's real
+broker container (`mqtt-broker` — confirmed via `docker ps`, **not**
+`mosquitto`) via its **host-published** port: `host.docker.internal:1884`.
+This is the same `host.docker.internal` + `extra_hosts: host-gateway`
+mechanism already used for the RTSP camera source and `companion-bridge`
+(see `references/DEPLOY.md`). Do **not** join the SDK's Docker network for
+this — that mechanism is reserved for `metrics-manager` only, which has no
+host-published port (see `references/DEPLOY.md`'s "uavsdk network
+attachment" section).
 
 ### Volume mount in docker-compose
 
@@ -144,17 +152,24 @@ make start-rtsp      # docker exec -it dlstreamer-pipeline-server bash -c "pytho
 
 ### uavsdk_pipeline_manager.py (uavsdk mode)
 
-Subscribes to MQTT broker at `host.docker.internal:1883` on topic
-`uav/{{UAV_ID}}/telemetry/status`. Parses `armed` boolean from JSON payload.
+Subscribes to MQTT broker at `host.docker.internal:1884` (the SDK's real
+broker container is `mqtt-broker`, reached via its host-published port — see
+the "UAVSDK Telemetry Overlay" section above; never `mosquitto`/network-join)
+on topic `uav/{{UAV_ID}}/telemetry/status`. Parses `armed` boolean from JSON
+payload.
 
 **On ARMED:** calls `wait_for_rtsp_stream()` with `ffprobe` for each camera RTSP URL
 before POSTing pipelines (retries 3× with 2 s delay).
 
 **On DISARMED:** DELETEs all running pipeline instances.
 
-**RTSP source URLs probed:**
+**RTSP source URLs probed** (via `host.docker.internal`, the same
+host-published-port mechanism as the MQTT broker above and `companion-bridge`
+— **not** the SDK's internal `mediamtx` container name, which would require
+joining its network for no reason; only `metrics-manager` needs that):
 ```python
-RTSP_BASE_URL = f"rtsp://host.docker.internal:8554/uav-1"
+RTSP_HOST = "host.docker.internal"
+RTSP_BASE_URL = f"rtsp://{RTSP_HOST}:8554/uav-1"
 PIPELINES = [
     {"name": "nadir_camera_rtsp_cpu",    "rtsp_url": f"{RTSP_BASE_URL}/nadir",   "device": "CPU"},
     {"name": "forward_camera_rtsp_gpu",  "rtsp_url": f"{RTSP_BASE_URL}/forward", "device": "GPU"},
@@ -166,14 +181,21 @@ PIPELINES = [
 
 ---
 
-## MQTT Topics (pymavlink mode)
+## MQTT Topics
 
-DLSPS publishes detection metadata to MQTT when configured with:
+DLSPS publishes detection metadata to MQTT when configured with
+`APPEND_PIPELINE_NAME_TO_PUBLISHER_TOPIC=true`. The broker host/port env
+vars differ by mode — **never share the same values across modes**:
+
 ```yaml
-environment:
-  - MQTT_HOST=broker
-  - MQTT_PORT=1883
-  - APPEND_PIPELINE_NAME_TO_PUBLISHER_TOPIC=true
+# pymavlink mode — this app's own broker service
+- MQTT_HOST=broker
+- MQTT_PORT=1883
+
+# uavsdk mode — uav-mission-compute-sdk's broker, host-published port
+# (host.docker.internal, NOT a Docker-network join — see above)
+- MQTT_HOST=host.docker.internal
+- MQTT_PORT=1884
 ```
 
 Detection topic pattern: `{pipeline_name}` (populated by DLSPS from pipeline name).
@@ -186,6 +208,6 @@ Detection topic pattern: `{pipeline_name}` (populated by DLSPS from pipeline nam
 |----------|-------|---------|
 | `ENABLE_RTSP` | `true` | Enable DLSPS RTSP server |
 | `RTSP_PORT` | `8555` | RTSP output port |
-| `MQTT_HOST` | `broker` | Mosquitto broker hostname |
-| `MQTT_PORT` | `1883` | Mosquitto broker port |
+| `MQTT_HOST` | `broker` (pymavlink) / `host.docker.internal` (uavsdk) | Mosquitto broker hostname — differs by mode, see "MQTT Topics" above |
+| `MQTT_PORT` | `1883` (pymavlink, container-internal) / `1884` (uavsdk, host-published) | Mosquitto broker port |
 | `ZE_ENABLE_ALT_DRIVERS` | `libze_intel_npu.so` | Required for NPU inference |

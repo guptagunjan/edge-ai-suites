@@ -64,7 +64,14 @@ MAVLink/MQTT → Pipeline Manager → start/stop pipelines on ARMED/DISARMED
    `go` / `defaults` / empty to proceed.
 3. Validate parameters before generating files.
 4. Load reference files on demand — **do not load all up front**.
-5. Generate the application files and verify against the completion criteria.
+5. Every generated file — including the optional web UI — is authored fresh
+   from the specification in the relevant `references/*.md` file. This skill
+   contains **no embedded application source code**. Reference files under
+   `references/` are authoring **guidance** (architecture, REST contracts,
+   config schemas, env var tables, gotchas, verification steps) etc. It is
+   always generated into the caller-supplied `{{STACK_DIR}}` only.
+6. Verify the result against the completion criteria in this file and in
+   each loaded reference file.
 
 ## Reference Files (load on demand)
 
@@ -74,6 +81,7 @@ MAVLink/MQTT → Pipeline Manager → start/stop pipelines on ARMED/DISARMED
 | [`references/TELEMETRY.md`](references/TELEMETRY.md) | MAVLink/UAVSDK telemetry overlay (gvapython), pipeline manager scripts |
 | [`references/DEPLOY.md`](references/DEPLOY.md) | Docker Compose services, env vars, Makefile targets, volumes, device access |
 | [`references/MODEL.md`](references/MODEL.md) | YOLOv8n-VisDrone download + OpenVINO export, custom model substitution |
+| [`references/UI.md`](references/UI.md) | Web Mission Console (Flask+ffmpeg) — full specification: architecture, REST API contract, env vars, Dockerfile/compose requirements, implementation gotchas. Generate `ui/app.py`, `ui/templates/index.html`, `ui/Dockerfile` from this spec |
 | [`references/TESTS.md`](references/TESTS.md) | pytest structure, REST API tests, RTSP stream validation, MQTT checks |
 
 ## Parameters (from invoking prompt)
@@ -89,6 +97,7 @@ MAVLink/MQTT → Pipeline Manager → start/stop pipelines on ARMED/DISARMED
 | `{{UAV_ID}}` | UAV identifier for UAVSDK MQTT topic, e.g. `uav-1` |
 | `{{STACK_DIR}}` | output directory for the new application stack |
 | `{{OVERLAY_NAME}}` | label shown in the telemetry overlay, e.g. `MyUAV-CPU` |
+| `{{INCLUDE_UI}}` | `yes` \| `no` — generate the web Mission Console (`ui/`) from `references/UI.md`, with pipeline control, live preview, and system metrics |
 
 ## Questions (single batched prompt)
 
@@ -98,6 +107,7 @@ MAVLink/MQTT → Pipeline Manager → start/stop pipelines on ARMED/DISARMED
 4. Model [`yolov8n-visdrone`] (or path to a custom OpenVINO IR `.xml` file)
 5. Output directory [`./uav-stack`]
 6. UAV ID (UAVSDK mode only) [`uav-1`]
+7. Include web Mission Console UI — pipeline control, live video preview, system metrics [`yes`]
 
 ## Parameter Validation (enforce BEFORE file generation)
 
@@ -109,6 +119,7 @@ MAVLink/MQTT → Pipeline Manager → start/stop pipelines on ARMED/DISARMED
 | `MODEL` | ends in `.xml`, file exists (if custom) | DLSPS fails to load model |
 | `UAV_ID` | `^[a-z0-9-]+$`, no spaces | MQTT topic invalid |
 | `PIPELINE_PREFIX` | `^[a-z0-9_]+$` | REST path + MQTT topic break |
+| `INCLUDE_UI` | `yes`\|`no` | unknown value skips UI generation silently |
 
 ## Supported Use Cases
 
@@ -124,6 +135,20 @@ MAVLink/MQTT → Pipeline Manager → start/stop pipelines on ARMED/DISARMED
 
 - Before generating files: verify all parameters pass validation.
 - Before `make pymav-up` or `make uavsdk-up`: check ports 8081, 8555, 1883 are free.
+- Before `make pymav-up` or `make uavsdk-up`: also check no container is
+  already using this stack's names —
+  `docker ps -a --format '{{.Names}}'` and look for
+  `dlstreamer-pipeline-server`, `metrics-manager`, `uav-mission-ui`,
+  `broker`, `px4`, `mavlink-router`. Docker container names must be unique
+  per host; colliding with another running stack (this app's own real
+  deployment, another generated `{{STACK_DIR}}`, or an unrelated demo)
+  makes `docker compose up` fail with `Conflict... already in use`
+  (reproduced in practice, not theoretical). If any name is already taken,
+  prefix every `container_name:` value in the generated compose file with
+  `{{STACK_NAME}}-` — leave the Compose *service* names
+  (`dlstreamer-pipeline-server`, etc.) unchanged so internal DNS and
+  `depends_on` still resolve; only the literal `container_name:` needs to
+  change.
 - For UAVSDK mode: confirm `uav-mission-compute-sdk` stack is running first.
 - Never hardcode secrets — use `.env` variables for `HOST_IP`, device GIDs, credentials.
 - Use `make model` to download and export the model before starting the stack.
@@ -145,6 +170,26 @@ MAVLink/MQTT → Pipeline Manager → start/stop pipelines on ARMED/DISARMED
   system proxy from `/etc/environment` and silently breaks `make model`
   (pip and huggingface-cli lose the corporate proxy). Use commented examples
   instead: `# http_proxy=`.
+- For `{{INCLUDE_UI}} == yes`: generate `ui/app.py`, `ui/templates/index.html`,
+  `ui/Dockerfile`, and `ui/requirements.txt` by implementing the full
+  specification in `references/UI.md` — every route, env var, and gotcha
+  listed there. This applies to **either** deployment mode — the UI is
+  deployment-mode-agnostic (behavior differs only via env vars in the
+  compose service block, see `references/UI.md`).
+- `metrics-manager` is a **core service, independent of `{{INCLUDE_UI}}`** —
+  but its *source* differs by deployment mode:
+  - **pymavlink mode**: this skill generates its own `metrics-manager`
+    service in `docker-compose-pymavlink.yml`. Always add it, regardless of
+    `{{INCLUDE_UI}}` — never gate it behind the UI question.
+  - **uavsdk mode**: `metrics-manager` is already running as part of the
+    `uav-mission-compute-sdk` stack (started before this stack, per the
+    guardrail above). **Do NOT generate a second `metrics-manager` service**
+    in `docker-compose-uavsdk.yml` — doing so causes a host port conflict
+    on `9090`. Instead, only the `dlstreamer-pipeline-server` (DLSPS)
+    service is generated here; it joins the SDK's existing Docker network
+    (see `references/DEPLOY.md` for the exact network name and join
+    instructions) so that `metrics-manager` can scrape DLSPS metrics and the
+    UI container (if any) can reach `metrics-manager` by its SDK service name.
 
 ## Generated File Layout
 
@@ -167,6 +212,12 @@ MAVLink/MQTT → Pipeline Manager → start/stop pipelines on ARMED/DISARMED
 ├── resources/
 │   ├── models/yolov8n-visdrone/          # exported OpenVINO model
 │   └── videos/gazebo.avi                 # sample video (file source)
+├── ui/                                    # if {{INCLUDE_UI}} == yes — generated fresh from references/UI.md
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── app.py
+│   └── templates/
+│       └── index.html
 └── tests/
     ├── conftest.py
     ├── test_stack_up.py
@@ -195,3 +246,33 @@ or scripts is a syntax error.
 9. On UAVSDK mode: pipelines start only after RTSP probe confirms streams are live.
 10. `make pymav-down` (or `make uavsdk-down`) cleanly stops all containers.
 11. `pytest -q tests/` passes all tests.
+12. `metrics-manager` is reachable at `http://localhost:9090/api/v1/metrics/latest`
+    (non-empty `metrics` object) **regardless of `{{INCLUDE_UI}}`**, and
+    regardless of whether it was generated by this skill:
+    - **pymavlink mode**: `metrics-manager` container generated by this
+      skill's compose file is `running`.
+    - **uavsdk mode**: `metrics-manager` container from the already-running
+      `uav-mission-compute-sdk` stack is `running` (this skill must NOT
+      generate its own — see guardrails above).
+    - **Exception:** if the SDK stack was started without the
+      `observability` profile (a `-lean` variant), it has no
+      `metrics-manager` at all — this is a valid SDK configuration, not a
+      generation bug. In that case this criterion is satisfied instead by
+      `curl http://localhost:8090/api/metrics` returning `null` for every
+      field (see `references/UI.md`), not by the container running.
+    - This check must pass even when `{{INCLUDE_UI}} == no` — metrics
+      collection is a standalone stack feature, not a UI dependency.
+13. If `{{INCLUDE_UI}} == yes` (see `references/UI.md` for the full contract
+    and verification steps), in **either** deployment mode:
+    - `ui/Dockerfile`, `ui/app.py`, `ui/templates/index.html` were generated
+      from the spec in `references/UI.md`.
+    - `uav-mission-ui` container is `running`.
+    - `curl http://localhost:8090/` returns `200`.
+    - `curl http://localhost:8090/api/pipelines` returns the same pipeline names as
+      `curl http://localhost:8081/pipelines`.
+    - `curl http://localhost:8090/api/metrics` returns non-null `cpu.percent` / `mem.percent`
+      (relayed from the always-on `metrics-manager` in criterion 12, not a
+      UI-specific metrics source).
+    - `POST http://localhost:8090/api/pipelines/start` with a valid pipeline `name`
+      returns `session_id` + `preview_url`, and the pipeline appears `RUNNING` in
+      `curl http://localhost:8081/pipelines/status`.

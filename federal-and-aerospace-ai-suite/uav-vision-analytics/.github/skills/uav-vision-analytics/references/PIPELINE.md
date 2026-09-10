@@ -90,6 +90,11 @@ rtspsrc location={{RTSP_INPUT_URL}} latency=100
 
 ## config.json Structure
 
+The `"pipeline"` value is the raw GStreamer string directly
+(NOT an object with a nested `"template"` key), and `"parameters"` is a
+flat JSON-Schema object (`"type"`/`"properties"`) - NOT nested under
+`"pipeline"`.
+
 ```json
 {
     "config": {
@@ -97,12 +102,12 @@ rtspsrc location={{RTSP_INPUT_URL}} latency=100
             {
                 "name": "{{PIPELINE_PREFIX}}_cpu",
                 "source": "gstreamer",
-                "queue": {
-                    "max_size_bytes": 20000000
-                },
-                "pipeline": {
-                    "template": "{{GSTREAMER_STRING_CPU}}",
-                    "parameters": {
+                "queue_maxsize": 50,
+                "pipeline": "{{GSTREAMER_STRING_CPU}}",
+                "description": "UAV object detection - CPU",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
                         "detection-properties": {
                             "element": {
                                 "name": "detection",
@@ -110,19 +115,28 @@ rtspsrc location={{RTSP_INPUT_URL}} latency=100
                             }
                         }
                     }
-                }
+                },
+                "auto_start": false
             },
             {
                 "name": "{{PIPELINE_PREFIX}}_gpu",
-                ...GPU variant...
+                ...GPU variant, same flat shape...
             },
             {
                 "name": "{{PIPELINE_PREFIX}}_npu",
-                ...NPU variant...
+                ...NPU variant, same flat shape...
             }
         ]
     }
 }
+```
+
+**`GET /pipelines` response gotcha:** each registered pipeline is returned
+with a **fixed** `"name": "user_defined_pipelines"` - the actual pipeline
+identifier you POST/launch by is in the **`"version"`** field instead.
+Always read `p["version"]`, never `p["name"]`, when listing pipeline names
+from this endpoint (see `references/TESTS.md`'s `_testable_pipeline_name()`
+and `references/UI.md`'s `/api/pipelines` route for the correct pattern).
 ```
 
 For RealSense pipelines, use `{{PIPELINE_PREFIX}}_realsense_cpu` etc.
