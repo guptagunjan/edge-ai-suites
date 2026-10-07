@@ -1,0 +1,86 @@
+{
+  "skill": "loitering-detection-ui",
+  "description": "Evaluation cases for the generated Metro Vision AI Mission Console addon.",
+  "cases": [
+    {
+      "id": "generate-and-attach",
+      "prompt": "Attach a mission console to the running loitering-detection deployment.",
+      "expect": [
+        "Confirms the application is running and its tracked files are clean before generating.",
+        "Generates console/app.py, templates/index.html, static/{styles.css,whep.js,app.js}, Dockerfile, entrypoint.sh, requirements.txt, compose.console.yml and .env into an addon directory outside the application source tree.",
+        "Creates or edits no application file: config.json, nginx.conf, compose files, flows.json and Grafana dashboards are untouched.",
+        "Deploys with a compose file that joins the application network as an external network.",
+        "acceptance/verify.sh exits zero with --app-dir and --live."
+      ]
+    },
+    {
+      "id": "no-application-modification",
+      "prompt": "Add the console without changing anything in the application.",
+      "expect": [
+        "Uses the released detection-properties parameter for model and device selection instead of editing config.json.",
+        "Terminates TLS in the console and proxies WHEP instead of editing nginx.conf.",
+        "Uses a separate compose file instead of editing the application's compose file.",
+        "git status in the application repository shows no modified tracked file attributable to the skill."
+      ]
+    },
+    {
+      "id": "model-agnostic-comparison",
+      "prompt": "Compare the detector the application ships with against a model I have just installed.",
+      "expect": [
+        "Lists both models purely from discovery in the mounted model store.",
+        "Names no specific model in generated code, configuration or documentation.",
+        "Starts two pipelines on the same source with distinct peer identifiers.",
+        "Supplies a distinct model-instance-id derived from model and device on each request.",
+        "Reports independent FPS, dwell and loiter figures per panel."
+      ]
+    },
+    {
+      "id": "device-coverage",
+      "prompt": "Verify the console works on CPU, GPU and NPU.",
+      "expect": [
+        "Offers only devices the host provides and marks the others disabled.",
+        "Starts successfully on each available device with any discovered model.",
+        "Does not reuse the released model-instance identifier, so a model change does not bind to a previously loaded network.",
+        "Live verification exercises every available device rather than CPU alone."
+      ]
+    },
+    {
+      "id": "zone-without-restart",
+      "prompt": "Draw a new loitering zone on the video and apply it.",
+      "expect": [
+        "Converts screen coordinates to source pixels using the intrinsic video size and letterbox offsets.",
+        "Applies the zone through api/zone; the pipeline instance is not stopped, relaunched or renegotiated.",
+        "Subsequent telemetry reflects the new zone."
+      ]
+    },
+    {
+      "id": "dwell-agrees-with-application",
+      "prompt": "Dwell time in the console is much lower than the application dashboard reports.",
+      "expect": [
+        "Measures dwell on the frame timestamp carried in the metadata, not on message arrival time.",
+        "Measures dwell against zone occupancy so that a tracker identifier reassignment does not reset it.",
+        "Applies a vacancy grace period before clearing the zone entry timestamp.",
+        "Retains tracks under a time-to-live rather than evicting them at the reporting interval.",
+        "Reports the greater of zone dwell and the longest per-track dwell."
+      ]
+    },
+    {
+      "id": "cross-machine-consistency",
+      "prompt": "Deploy the console on a second machine.",
+      "expect": [
+        "Emits the locked design tokens verbatim and every required element identifier.",
+        "Produces a dashboard indistinguishable from the first deployment.",
+        "Passes the same gate without weakening any assertion."
+      ]
+    },
+    {
+      "id": "invocation",
+      "prompt": "/loitering-detection-ui is reported as an unknown command.",
+      "expect": [
+        "Explains that the identifier is the front-matter name and is lower-case.",
+        "Explains that the repository containing .github/skills/loitering-detection-ui must be open as a workspace folder for the command to resolve.",
+        "Offers engagement by description as an alternative."
+      ]
+    }
+  ]
+}
