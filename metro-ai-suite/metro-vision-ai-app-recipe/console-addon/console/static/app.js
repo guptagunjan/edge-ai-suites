@@ -76,10 +76,10 @@ window.Console = window.Console || {};
     });
   }
 
-  function startOne(pipelineNum, modelId, device, source, rtsp, zone) {
+  function startOne(pipelineNum, modelId, device, source, rtsp, zone, watermark) {
     var m = MODELS.filter(function (x) { return x.id === modelId; })[0];
     return C.apiPost("api/pipelines/start", {
-      source: source, rtsp: rtsp, model: modelId, device: device, zone: zone
+      source: source, rtsp: rtsp, model: modelId, device: device, zone: zone, watermark: watermark
     }).then(function (r) {
       C.createPanel({
         peer_id: r.peer_id,
@@ -103,11 +103,12 @@ window.Console = window.Console || {};
     // too, duplicating all of them instead of adding just the new one.
     var configs = C.collectStreamConfigs().filter(function (cfg) { return !cfg.alreadyRunning; });
     if (!configs.length) { return; }
+    var watermark = byId("watermarkToggle").checked;
     btn.disabled = true;
     var prev = btn.textContent;
     btn.textContent = "Starting\u2026";
     Promise.all(configs.map(function (cfg) {
-      return startOne(cfg.pipelineNum, cfg.model, cfg.device, cfg.source, cfg.rtsp, cfg.zone).catch(function (e) {
+      return startOne(cfg.pipelineNum, cfg.model, cfg.device, cfg.source, cfg.rtsp, cfg.zone, watermark).catch(function (e) {
         alert("Could not start " + cfg.model + ": " + (e && e.message ? e.message : e));
         return null;
       });

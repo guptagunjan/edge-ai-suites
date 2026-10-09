@@ -61,7 +61,7 @@ function run_sample() {
     "destination": {
         "metadata": {
             "type": "mqtt",
-            "topic": "object_tracking_$x",
+            "topic": "object_tracking/$x",
             "publish_frame":false
         },
         "frame": {
@@ -77,6 +77,9 @@ function run_sample() {
         },
         "analytics-properties": {
             "zones": $ZONES_JSON
+        },
+        "loitering-watermark-properties": {
+            "loitering-threshold": 5.0
         }
     }
   }

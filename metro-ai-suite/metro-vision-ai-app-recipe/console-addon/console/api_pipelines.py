@@ -17,7 +17,7 @@ from catalog import (_extract_instance_id, _model_instance_id,
                      _resolve_source_uri, _select_pipeline, discover_models)
 
 
-def _launch(source_id, model_id, device, zone, rtsp=None):
+def _launch(source_id, model_id, device, zone, rtsp=None, watermark=False):
     """Start one pipeline instance. Raises ValueError with a user-facing
     message on any input/DLSPS error; returns the new session dict on success.
 
@@ -25,6 +25,12 @@ def _launch(source_id, model_id, device, zone, rtsp=None):
     pipeline keeps evaluating the deployment's own zones from
     loitering_analytics_config.json unmodified; a provided zone entirely
     replaces them (see `analytics_zones_json`).
+
+    `watermark` toggles the pipeline's `loitering_watermark` element, which
+    burns zone/dwell-time text onto the video itself - off by default since
+    the console's own per-panel loiter table already shows the same data
+    without cluttering the feed; useful when the video is also viewed
+    somewhere without the console open (e.g. Grafana, a recording).
     """
     source_uri = _resolve_source_uri(source_id, rtsp)
     if not source_uri:
@@ -51,6 +57,7 @@ def _launch(source_id, model_id, device, zone, rtsp=None):
 
     zone = zone or None
     analytics_props = {"zones": analytics_zones_json(zone)}
+    watermark_props = {"quiet-mode": "false" if watermark else "true"}
 
     payload = {
         "source": {"uri": source_uri, "type": "uri"},
@@ -59,7 +66,8 @@ def _launch(source_id, model_id, device, zone, rtsp=None):
             "frame": {"type": "webrtc", "peer-id": peer_id},
         },
         "parameters": {"detection-properties": detection_props,
-                       "analytics-properties": analytics_props},
+                       "analytics-properties": analytics_props,
+                       "loitering-watermark-properties": watermark_props},
     }
 
     url = f"{PIPELINE_SERVER_URL}/pipelines/{pipeline.get('name')}/{pipeline.get('version')}"
@@ -125,8 +133,9 @@ def api_pipelines_start():
     if device not in ("CPU", "GPU", "NPU"):
         return jsonify({"error": "device must be one of CPU, GPU, NPU"}), 400
     zone = _parse_zone(body.get("zone"))
+    watermark = bool(body.get("watermark"))
     try:
-        result = _launch(body.get("source"), body.get("model"), device, zone, body.get("rtsp"))
+        result = _launch(body.get("source"), body.get("model"), device, zone, body.get("rtsp"), watermark)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except requests.RequestException as exc:

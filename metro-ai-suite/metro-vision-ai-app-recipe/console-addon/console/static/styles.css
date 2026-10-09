@@ -182,6 +182,15 @@ select:focus, input[type="text"]:focus, input[type="number"]:focus {
   cursor: pointer;
 }
 .radio-inline input { width: auto; }
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .82rem;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+.checkbox-inline input { width: auto; }
 
 /* Stream-config accordions are generated per instance; same look as the
    other rail cards, just stacked under the "Streams" count field. */
