@@ -88,10 +88,14 @@ By following this guide, you will learn how to:
      - Grafana Dashboard
      - DL Streamer Pipeline Server
      - MQTT Broker
-     - Loitering Detection Console (operator UI)
      - Scenescape services (for Smart Intersection only)
 
      </details>
+
+   > [!NOTE]
+   > The [Loitering Detection Console UI](#loitering-detection-console-ui) is **not** part of this
+   > default deployment. Deploy it with `./sample_start.sh --gui` (see step 2 below) instead of
+   > plain `docker compose up -d` if you want it.
 
 2. **Run Predefined Pipelines** (required):
    - Start video streams to run video inference pipelines:
@@ -105,6 +109,20 @@ By following this guide, you will learn how to:
      > API. If you only intend to use the [Console UI](#loitering-detection-console-ui) - which
      > starts and stops its own streams on demand - you can skip this step entirely and go
      > straight to the Console UI's URL below.
+
+   - To bring up the Console UI as well, pass `--gui` instead (this stops any already-running
+     pipelines, regenerates `docker-compose.yml` with the Console UI service included, and
+     redeploys the whole stack, then starts the 4 fixed sample pipelines as above):
+
+     ```bash
+     ./sample_start.sh --gui
+     ```
+
+     > [!NOTE]
+     > `--gui` can be combined with a device argument, e.g. `./sample_start.sh --gui gpu`.
+     > Once deployed this way, the Console UI container keeps running across later plain
+     > `./sample_start.sh`/`./sample_stop.sh` calls - `--gui` only needs to be passed again after
+     > a fresh `./install.sh` (which regenerates `docker-compose.yml` from scratch, without it).
 
    - To check the status of the pipelines:
 

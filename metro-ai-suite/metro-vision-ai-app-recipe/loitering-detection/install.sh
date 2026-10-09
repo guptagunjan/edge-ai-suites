@@ -105,3 +105,24 @@ fi
 EOF
 
 )"
+
+##############################################################################
+# The Console UI container is opt-in (see sample_start.sh --gui): the
+# default deployment (no flag) never builds or starts it, so it is stripped
+# from the generated ../docker-compose.yml here unless WITH_GUI=1 is set in
+# the environment - sample_start.sh's --gui path re-invokes the top-level
+# install.sh with WITH_GUI=1 to regenerate the file with it included instead.
+# This edits the generated file, not compose-without-scenescape.yml itself,
+# so a plain `docker compose up -d` after a plain `./install.sh ...` keeps
+# working exactly as before for anyone not using the UI.
+##############################################################################
+COMPOSE_FILE="../docker-compose.yml"
+if [ -f "$COMPOSE_FILE" ] && [ "${WITH_GUI:-0}" != "1" ]; then
+  echo "Console UI not requested (WITH_GUI unset) - removing the console service from $COMPOSE_FILE..."
+  awk '
+    /^  console:/ { skip=1; next }
+    skip && /^  [^ ]/ { skip=0 }
+    skip && /^[^ ]/ { skip=0 }
+    !skip { print }
+  ' "$COMPOSE_FILE" > "$COMPOSE_FILE.tmp" && mv "$COMPOSE_FILE.tmp" "$COMPOSE_FILE"
+fi

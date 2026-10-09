@@ -11,14 +11,46 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": {
-        "h": 12,
-        "w": 12,
-        "x": 0,
-        "y": 0
-      },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Live Streams",
+      "type": "row"
+    },
+    {
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 1 },
       "id": 1,
-      "title": "Camera 4 - Live Stream",
+      "title": "Camera 1",
+      "type": "text",
+      "options": {
+        "mode": "html",
+        "content": "<iframe src=\"${WEBRTC_URL}object_tracking_1/\" width=\"100%\" height=\"100%\" frameborder=\"0\" allow=\"autoplay; fullscreen\"></iframe>"
+      }
+    },
+    {
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 1 },
+      "id": 2,
+      "title": "Camera 2",
+      "type": "text",
+      "options": {
+        "mode": "html",
+        "content": "<iframe src=\"${WEBRTC_URL}object_tracking_2/\" width=\"100%\" height=\"100%\" frameborder=\"0\" allow=\"autoplay; fullscreen\"></iframe>"
+      }
+    },
+    {
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 13 },
+      "id": 3,
+      "title": "Camera 3",
+      "type": "text",
+      "options": {
+        "mode": "html",
+        "content": "<iframe src=\"${WEBRTC_URL}object_tracking_3/\" width=\"100%\" height=\"100%\" frameborder=\"0\" allow=\"autoplay; fullscreen\"></iframe>"
+      }
+    },
+    {
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 13 },
+      "id": 4,
+      "title": "Camera 4",
       "type": "text",
       "options": {
         "mode": "html",
@@ -27,14 +59,16 @@
     },
     {
       "collapsed": false,
-      "gridPos": {
-        "h": 12,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "id": 2,
-      "title": "Camera 4 - Loitering Detection Events",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "id": 101,
+      "panels": [],
+      "title": "Loitering Status - All Cameras",
+      "type": "row"
+    },
+    {
+      "gridPos": { "h": 16, "w": 24, "x": 0, "y": 26 },
+      "id": 5,
+      "title": "Loiter Table - All Cameras",
       "type": "table",
       "datasource": {
         "type": "grafana-mqtt-datasource",
@@ -60,53 +94,14 @@
           }
         },
         {
-          "id": "filterByValue",
-          "options": {
-            "type": "include",
-            "match": "all",
-            "filters": [
-              {
-                "fieldName": "camera",
-                "config": {
-                  "id": "equal",
-                  "options": {
-                    "value": "object_tracking_4"
-                  }
-                }
-              }
-            ]
-          }
-        },
-        {
           "id": "groupBy",
           "options": {
             "fields": {
-              "camera": {
-                "aggregations": [],
-                "operation": "groupby"
-              },
-              "object_id": {
-                "aggregations": [],
-                "operation": "groupby"
-              },
-              "type": {
-                "aggregations": [
-                  "lastNotNull"
-                ],
-                "operation": "aggregate"
-              },
-              "entry_time": {
-                "aggregations": [
-                  "lastNotNull"
-                ],
-                "operation": "aggregate"
-              },
-              "dwell_s": {
-                "aggregations": [
-                  "lastNotNull"
-                ],
-                "operation": "aggregate"
-              }
+              "camera": { "aggregations": [], "operation": "groupby" },
+              "object_id": { "aggregations": [], "operation": "groupby" },
+              "type": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+              "entry_time": { "aggregations": ["lastNotNull"], "operation": "aggregate" },
+              "dwell_s": { "aggregations": ["lastNotNull"], "operation": "aggregate" }
             }
           }
         },
@@ -127,10 +122,8 @@
           "id": "sortBy",
           "options": {
             "sort": [
-              {
-                "field": "Dwell (s)",
-                "desc": true
-              }
+              { "field": "Camera" },
+              { "field": "Dwell (s)", "desc": true }
             ]
           }
         }
@@ -181,7 +174,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Camera 4 Visualizer",
-  "uid": "cam4_loitering_dashboard",
-  "version": 12
+  "title": "Loitering Detection",
+  "uid": "loitering_detection_dashboard",
+  "version": 1
 }
